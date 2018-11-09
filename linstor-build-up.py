@@ -214,7 +214,9 @@ def linstor_deploy_resource(rsc_name=DEFAULT_RSC):
             print("Created RD: "+str(rd_list[0].proto_msg))
 
             # Create a New VD
-            vd_reply = lin.volume_dfn_create(rsc_name=rsc_name_target, size=int(DEFAULT_RSC_SIZE))  # size is in KiB
+            vd_reply = lin.volume_dfn_create(
+                rsc_name=rsc_name_target,
+                size=int(DEFAULT_RSC_SIZE))  # size is in KiB
             print(check_api_response(vd_reply))
             print("Created VD: "+str(vd_reply[0].proto_msg))
             # print(rd_list[0])
@@ -224,10 +226,9 @@ def linstor_deploy_resource(rsc_name=DEFAULT_RSC):
             # pprint.pprint(sp_list)
 
             for node in sp_list:
-                rsc =linstor.linstorapi.ResourceData(
-                    rsc_name = rsc_name_target,
-                    rsc_reply = lin.resource_create([rsc])
-
+                rsc = linstor.linstorapi.ResourceData(
+                    rsc_name=rsc_name_target,
+                    node_name=node['node_name'])
                 rsc_reply = lin.resource_create([rsc])
                 print(check_api_response(rsc_reply))
 
