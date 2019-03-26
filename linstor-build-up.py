@@ -14,9 +14,9 @@
 
 import linstor
 import pprint
-import time
-import re
-import json
+#import time
+#import re
+#import json
 import sys
 
 LVM = 'Lvm'
@@ -42,198 +42,211 @@ print(lin.connected)
 
 
 def check_api_response(api_response):
-  for apiresp in api_response:
-    print(apiresp)
-  return linstor.Linstor.all_api_responses_success(api_response)
+    for apiresp in api_response:
+        print(apiresp)
+    return linstor.Linstor.all_api_responses_success(api_response)
+
 
 def get_nodes():
     try:
-        with linstor.Linstor(DEFAULT_LINSTOR_URI) as lin:
+        lin = linstor.Linstor(DEFAULT_LINSTOR_URI)
+        lin.connect()
+        # Get Node List
+        node_list_reply = lin.node_list()
+        assert node_list_reply, "Empty response"
 
-            # Get Node List
-            node_list_reply = lin.node_list()
-            assert node_list_reply, "Empty response"
+        node_list = []
+        if len(str(node_list_reply[0])) == 0:
+            print("No LINSTOR nodes found on the network.")
+        else:
+            for node in node_list_reply[0].proto_msg.nodes:
+                # print('NODE: '+node.name+' = '+node.uuid+' = '+node.net_interfaces[0].address+'\n')
+                node_item = {}
+                node_item['node_name'] = node.name
+                node_item['node_uuid'] = node.uuid
+                node_item['node_address'] = node.net_interfaces[0].address
+                node_list.append(node_item)
 
-            node_list = []
-            if len(str(node_list_reply[0])) == 0:
-                print("No LINSTOR nodes found on the network.")
-            else:
-                for node in node_list_reply[0].proto_msg.nodes:
-                    # print('NODE: '+node.name+' = '+node.uuid+' = '+node.net_interfaces[0].address+'\n')
-                    node_item = {}
-                    node_item['node_name'] = node.name
-                    node_item['node_uuid'] = node.uuid
-                    node_item['node_address'] = node.net_interfaces[0].address
-                    node_list.append(node_item)
-
-            return node_list
+        lin.disconnect()
+        return node_list
 
     except Exception as e:
         print(str(e))
+
 
 def get_spd():
     try:
-        with linstor.Linstor(DEFAULT_LINSTOR_URI) as lin:
+        lin = linstor.Linstor(DEFAULT_LINSTOR_URI)
+        lin.connect()
+        # Storage Pool Definition List
+        spd_list_reply = lin.storage_pool_dfn_list()
+        assert len(str(spd_list_reply[0])), "Empty Storage Pool Definition list"
 
-            # Storage Pool Definition List
-            spd_list_reply = lin.storage_pool_dfn_list()
-            assert len(str(spd_list_reply[0])), "Empty Storage Pool Definition list"
+        node_list = spd_list_reply[0]
+        # print(node_list.proto_msg)
 
-            node_list = spd_list_reply[0]
-            # print(node_list.proto_msg)
+        spd_list = []
+        for node in node_list.proto_msg.stor_pool_dfns:
+            spd_item = {}
+            spd_item['spd_uuid'] = node.uuid
+            spd_item['spd_name'] = node.stor_pool_name
+            spd_list.append(spd_item)
 
-            spd_list = []
-            for node in node_list.proto_msg.stor_pool_dfns:
-                spd_item = {}
-                spd_item['spd_uuid'] = node.uuid
-                spd_item['spd_name'] = node.stor_pool_name
-                spd_list.append(spd_item)
-
-            return spd_list
+        lin.disconnect()
+        return spd_list
 
     except Exception as e:
         print(str(e))
+
 
 def get_sp():
 
     try:
-        with linstor.Linstor(DEFAULT_LINSTOR_URI) as lin:
+        lin = linstor.Linstor(DEFAULT_LINSTOR_URI)
+        lin.connect()
+        # Fetch Storage Pool List
+        sp_list_reply = lin.storage_pool_list()
+        assert len(str(sp_list_reply[0])), "Empty Storage Pool list"
 
-            # Fetch Storage Pool List
-            sp_list_reply = lin.storage_pool_list()
-            assert len(str(sp_list_reply[0])), "Empty Storage Pool list"
+        # print(sp_list_reply[0].proto_msg)
 
-            # print(sp_list_reply[0].proto_msg)
+        sp_list = []
+        node_count = 0
+        for node in sp_list_reply[0].proto_msg.stor_pools:
+            sp_node = {}
+            # driver_pool_name = re.findall("StorDriver\/\w*\"\n\s*value: \"([0-9a-zA-Z\-_]+)\"", node)[0]
+            sp_node['node_uuid'] = node.node_uuid
+            sp_node['node_name'] = node.node_name
+            sp_node['sp_uuid'] = node.stor_pool_uuid
+            sp_node['sp_name'] = node.stor_pool_name
 
-            sp_list = []
-            node_count = 0
-            for node in sp_list_reply[0].proto_msg.stor_pools:
-                sp_node = {}
-                # driver_pool_name = re.findall("StorDriver\/\w*\"\n\s*value: \"([0-9a-zA-Z\-_]+)\"", node)[0]
-                sp_node['node_uuid'] = node.node_uuid
-                sp_node['node_name'] = node.node_name
-                sp_node['sp_uuid'] = node.stor_pool_uuid
-                sp_node['sp_name'] = node.stor_pool_name
+            for prop in node.props:
+                if "Vg" in prop.key:
+                    sp_node['vg_name'] = prop.value  # node.props[0].value or sp_node['vg_name'][0].value
+                if "ThinPool" in prop.key:
+                    print(prop.value+" is a thinpool")
 
-                for prop in node.props:
-                    if "Vg" in prop.key:
-                        sp_node['vg_name'] = prop.value  # node.props[0].value or sp_node['vg_name'][0].value
-                    if "ThinPool" in prop.key:
-                        print(prop.value+" is a thinpool")
+            # Trying to optimize below causes incorrect result on py2.7
+            sp_node['sp_free'] = round(node.free_space.free_capacity /
+                                       ((1024 ** 3) / (1024.0 ** 1)), 2)  # in GB
 
-                # Trying to optimize below causes incorrect result on py2.7
-                sp_node['sp_free'] = round(node.free_space.free_capacity /
-                                           ((1024 ** 3) / (1024.0 ** 1)), 2) # in GB
+            # old node.driver == "LvmDriver":
+            sp_node['driver_kind'] = node.provider_kind
 
-                #old node.driver == "LvmDriver":
-                sp_node['driver_kind'] = node.provider_kind
+            # print(node)
 
-                # print(node)
+            if node.vlms:
+                print(node.vlms[0].device_path)
+            else:
+                print('No volumes')
 
-                if node.vlms:
-                    print(node.vlms[0].device_path)
-                else:
-                    print('No volumes')
+            sp_list.append(sp_node)
 
-                sp_list.append(sp_node)
+        print('\nFound '+str(len(sp_list))+' storage pools.')
 
-            print('\nFound '+str(len(sp_list))+' storage pools.')
-
-            return sp_list
+        lin.disconnect()
+        return sp_list
 
     except Exception as e:
         print(str(e))
+
 
 def linstor_driver_init():
     try:
-        with linstor.Linstor(DEFAULT_LINSTOR_URI) as lin:
+        lin = linstor.Linstor(DEFAULT_LINSTOR_URI)
+        lin.connect()
+        # Check for Storage Pool List
+        sp_list = get_sp()
+        # pprint.pprint(sp_list)
 
-            # Check for Storage Pool List
-            sp_list = get_sp()
-            # pprint.pprint(sp_list)
+        # Get default Storage Pool Definition
+        spd_default = VOL_GROUP
 
-            # Get default Storage Pool Definition
-            spd_default = VOL_GROUP
+        if not sp_list:
+            # print("No existing Storage Pools found")
 
-            if not sp_list:
-                # print("No existing Storage Pools found")
+            # Check for Ns
+            node_list = get_nodes()
+            # pprint.pprint(node_list)
 
-                # Check for Ns
-                node_list = get_nodes()
-                # pprint.pprint(node_list)
+            if len(node_list) == 0:
+                print("Error: No resource nodes available")  # Exception needed here
 
-                if len(node_list) == 0:
-                    print("Error: No resource nodes available")  # Exception needed here
+            # Create Storage Pool (definition is implicit)
+            spd_name = get_spd()[0]['spd_name']
 
-                # Create Storage Pool (definition is implicit)
-                spd_name = get_spd()[0]['spd_name']
+            pool_driver = LVM   # LVM_THIN
 
-                pool_driver = LVM   # LVM_THIN
+            if pool_driver == LVM:
+                driver_pool = VOL_GROUP
+            elif pool_driver == LVM_THIN:
+                driver_pool = VOL_GROUP+"/"+spd_name
 
-                if pool_driver == LVM:
-                    driver_pool = VOL_GROUP
-                elif pool_driver == LVM_THIN:
-                    driver_pool = VOL_GROUP+"/"+spd_name
+            for node in node_list:
+                lin.storage_pool_create(
+                    node_name=node['node_name'],
+                    storage_pool_name=spd_name,
+                    storage_driver=pool_driver,
+                    driver_pool_name=driver_pool)
+                print('Created Storage Pool for '+spd_name+' @ '+node['node_name']+' in '+driver_pool)
 
-                for node in node_list:
-                    lin.storage_pool_create(
-                        node_name=node['node_name'],
-                        storage_pool_name=spd_name,
-                        storage_driver=pool_driver,
-                        driver_pool_name=driver_pool)
-                    print('Created Storage Pool for '+spd_name+' @ '+node['node_name']+' in '+driver_pool)
+            # Ready to Move on
+            lin.disconnect()
+            return
 
-                # Ready to Move on
-                return
-
-            else:
-                print("Found existing Storage Pools")
-                # Ready to Move on
-                return
+        else:
+            print("Found existing Storage Pools")
+            # Ready to Move on
+            lin.disconnect()
+            return
 
     except Exception as e:
         print(str(e))
+
 
 def linstor_deploy_resource(rsc_name=DEFAULT_RSC):
 
     try:
-        with linstor.Linstor(DEFAULT_LINSTOR_URI) as lin:
+        lin = linstor.Linstor(DEFAULT_LINSTOR_URI)
+        lin.connect()
+        linstor_driver_init()
 
-            linstor_driver_init()
+        # Check for RD
+        rd_list = lin.resource_dfn_list()
+        rsc_name_target = rsc_name
 
-            # Check for RD
-            rd_list = lin.resource_dfn_list()
-            rsc_name_target = rsc_name
+        print("No existing Resource Definition found.  Created a new one.")
+        rd_reply = lin.resource_dfn_create(rsc_name_target)  # Need error checking
+        print(check_api_response(rd_reply))
+        rd_list = lin.resource_dfn_list()
+        print("Created RD: "+str(rd_list[0].proto_msg))
 
-            print("No existing Resource Definition found.  Created a new one.")
-            rd_reply = lin.resource_dfn_create(rsc_name_target)  # Need error checking
-            print(check_api_response(rd_reply))
-            rd_list = lin.resource_dfn_list()
-            print("Created RD: "+str(rd_list[0].proto_msg))
+        # Create a New VD
+        vd_reply = lin.volume_dfn_create(
+            rsc_name=rsc_name_target,
+            size=int(DEFAULT_RSC_SIZE))  # size is in KiB
+        print(check_api_response(vd_reply))
+        print("Created VD: "+str(vd_reply[0].proto_msg))
+        # print(rd_list[0])
 
-            # Create a New VD
-            vd_reply = lin.volume_dfn_create(
+        # Create RSC's
+        sp_list = get_sp()
+        # pprint.pprint(sp_list)
+
+        for node in sp_list:
+            rsc = linstor.linstorapi.ResourceData(
                 rsc_name=rsc_name_target,
-                size=int(DEFAULT_RSC_SIZE))  # size is in KiB
-            print(check_api_response(vd_reply))
-            print("Created VD: "+str(vd_reply[0].proto_msg))
-            # print(rd_list[0])
+                node_name=node['node_name'])
+            rsc_reply = lin.resource_create([rsc])
+            print(check_api_response(rsc_reply))
 
-            # Create RSC's
-            sp_list = get_sp()
-            # pprint.pprint(sp_list)
-
-            for node in sp_list:
-                rsc = linstor.linstorapi.ResourceData(
-                    rsc_name=rsc_name_target,
-                    node_name=node['node_name'])
-                rsc_reply = lin.resource_create([rsc])
-                print(check_api_response(rsc_reply))
-
+        lin.disconnect()
+        return
     except Exception as e:
         print(str(e))
 
-# This will spin up LINSTOR Resource Volumes named with supplied parameter(s) on all the known nodes.        
+
+# This will spin up LINSTOR Resource Volumes named with supplied parameter(s) on all the known nodes.
 if __name__ == "__main__":
     if len(sys.argv) == 1:
         print('Please supply resource name(s) to create LINSTOR Volumes')
