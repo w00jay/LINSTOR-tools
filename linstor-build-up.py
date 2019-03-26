@@ -125,10 +125,8 @@ def get_sp():
                 sp_node['sp_free'] = round(node.free_space.free_capacity /
                                            ((1024 ** 3) / (1024.0 ** 1)), 2) # in GB
 
-                if node.driver == "LvmDriver":
-                    sp_node['driver_name'] = "Lvm"
-                else:
-                    sp_node['driver_name'] = node.driver
+                #old node.driver == "LvmDriver":
+                sp_node['driver_kind'] = node.provider_kind
 
                 # print(node)
 
