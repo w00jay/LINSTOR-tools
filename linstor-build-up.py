@@ -35,12 +35,6 @@ VOL_GROUP = 'vg-35'
 DEFAULT_RSC = 'LinstorRsc'
 DEFAULT_RSC_SIZE = 1049000   # in KiB = 1GiB
 
-# Hit it
-lin = linstor.Linstor(DEFAULT_LINSTOR_URI)
-lin.connect()
-print(lin.connected)
-
-
 def check_api_response(api_response):
     for apiresp in api_response:
         print(apiresp)
@@ -253,3 +247,5 @@ if __name__ == "__main__":
     else:
         for rsc_tgt in sys.argv[1:]:
             linstor_deploy_resource(rsc_name=str(rsc_tgt))
+            print('Finished deploying ' + str(rsc_tgt))
+        print('Finshed deploying all resources')

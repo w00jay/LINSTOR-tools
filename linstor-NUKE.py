@@ -37,12 +37,6 @@ DEFAULT_LINSTOR_URI = 'linstor://localhost'
 #
 VOL_GROUP = 'vg-35'
 
-
-# Hit it
-lin = linstor.Linstor(DEFAULT_LINSTOR_URI)
-lin.connect()
-print(lin.connected)
-
 def nuke():
 
     with linstor.Linstor(DEFAULT_LINSTOR_URI) as lin:
