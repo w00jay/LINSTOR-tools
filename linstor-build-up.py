@@ -13,14 +13,16 @@
 # 2. Configure the LOCAL LINSTOR URI, VOLUME GROUP name and RUN it.
 
 import linstor
+
+import jsons
 import pprint
-#import time
-#import re
-#import json
 import sys
 
-LVM = 'Lvm'
-LVM_THIN = 'LvmThin'
+LVM = 'LVM'
+LVM_THIN = 'LVM_THIN'
+ZFS = 'ZFS'
+ZFS_THIN = 'ZFS_THIN'
+DISKLESS = 'DISKLESS'
 
 #
 # You probably DON'T want to change these, but I'm not stoppin'
@@ -35,30 +37,32 @@ VOL_GROUP = 'vg-35'
 DEFAULT_RSC = 'LinstorRsc'
 DEFAULT_RSC_SIZE = 1049000   # in KiB = 1GiB
 
-def check_api_response(api_response):
-    for apiresp in api_response:
-        print(apiresp)
-    return linstor.Linstor.all_api_responses_success(api_response)
 
+def check_api_response(api_response, noerror_only=False):
+    if noerror_only:
+        # Checks if none of the replies has an error
+        return linstor.all_api_responses_no_error(api_response)
+    else:
+        # Check if all replies are success
+        pass
 
 def get_nodes():
     try:
         lin = linstor.Linstor(DEFAULT_LINSTOR_URI)
         lin.connect()
         # Get Node List
-        node_list_reply = lin.node_list()
-        assert node_list_reply, "Empty response"
+        node_list_reply = jsons.dump(lin.node_list()[0].nodes)
+        assert node_list_reply, "No LINSTOR nodes found"
 
         node_list = []
-        if len(str(node_list_reply[0])) == 0:
-            print("No LINSTOR nodes found on the network.")
-        else:
-            for node in node_list_reply[0].proto_msg.nodes:
-                # print('NODE: '+node.name+' = '+node.uuid+' = '+node.net_interfaces[0].address+'\n')
+        if node_list_reply:
+            for node in node_list_reply:
                 node_item = {}
-                node_item['node_name'] = node.name
-                node_item['node_uuid'] = node.uuid
-                node_item['node_address'] = node.net_interfaces[0].address
+                node_item["node_name"] = node["name"]
+                # TODO (wap): Remove after testing
+                # node_item["node_uuid"] = node['uuid']
+                node_item["node_address"] = (
+                    node["net_interfaces"][0]["address"])
                 node_list.append(node_item)
 
         lin.disconnect()
@@ -73,18 +77,16 @@ def get_spd():
         lin = linstor.Linstor(DEFAULT_LINSTOR_URI)
         lin.connect()
         # Storage Pool Definition List
-        spd_list_reply = lin.storage_pool_dfn_list()
+        spd_list_reply = jsons.dump(
+            lin.storage_pool_dfn_list()[0].storage_pool_definitions)
         assert len(str(spd_list_reply[0])), "Empty Storage Pool Definition list"
 
         node_list = spd_list_reply[0]
         # print(node_list.proto_msg)
 
         spd_list = []
-        for node in node_list.proto_msg.stor_pool_dfns:
-            spd_item = {}
-            spd_item['spd_uuid'] = node.uuid
-            spd_item['spd_name'] = node.stor_pool_name
-            spd_list.append(spd_item)
+        for spd in spd_list_reply:
+            spd_list.append(spd["name"])
 
         lin.disconnect()
         return spd_list
@@ -94,51 +96,60 @@ def get_spd():
 
 
 def get_sp():
-
     try:
         lin = linstor.Linstor(DEFAULT_LINSTOR_URI)
         lin.connect()
         # Fetch Storage Pool List
-        sp_list_reply = lin.storage_pool_list()
-        assert len(str(sp_list_reply[0])), "Empty Storage Pool list"
+        sp_list_reply = jsons.dump(lin.storage_pool_list()[0].storage_pools)
+        assert sp_list_reply, "Empty Storage Pool list"
 
-        # print(sp_list_reply[0].proto_msg)
+        print(len(sp_list_reply))
 
+        sp_diskless_list = []
         sp_list = []
         node_count = 0
-        for node in sp_list_reply[0].proto_msg.stor_pools:
-            sp_node = {}
-            # driver_pool_name = re.findall("StorDriver\/\w*\"\n\s*value: \"([0-9a-zA-Z\-_]+)\"", node)[0]
-            sp_node['node_uuid'] = node.node_uuid
-            sp_node['node_name'] = node.node_name
-            sp_node['sp_uuid'] = node.stor_pool_uuid
-            sp_node['sp_name'] = node.stor_pool_name
+        if sp_list_reply:
+            for node in sp_list_reply:
+                
+                print(node["node_name"])
+                sp_node = {}
+                sp_node['node_name'] = node["node_name"]
+                sp_node['sp_uuid'] = node["uuid"]
+                sp_node['sp_name'] = node["name"]
 
-            for prop in node.props:
-                if "Vg" in prop.key:
-                    sp_node['vg_name'] = prop.value  # node.props[0].value or sp_node['vg_name'][0].value
-                if "ThinPool" in prop.key:
-                    print(prop.value+" is a thinpool")
+                if node["provider_kind"] == DISKLESS:
+                    diskless = True
+                else:
+                    diskless = False
 
-            # Trying to optimize below causes incorrect result on py2.7
-            sp_node['sp_free'] = round(node.free_space.free_capacity /
-                                       ((1024 ** 3) / (1024.0 ** 1)), 2)  # in GB
+                # Driver selection
+                if node["provider_kind"] == LVM:
+                    sp_node['driver_name'] = LVM
+                elif node["provider_kind"] == LVM_THIN:
+                    sp_node['driver_name'] = LVM_THIN
+                elif node["provider_kind"] == ZFS:
+                    sp_node['driver_name'] = ZFS
+                elif node["provider_kind"] == ZFS_THIN:
+                    sp_node['driver_name'] = ZFS_THIN
+                else:
+                    sp_node['driver_name'] = str(node["provider_kind"])
 
-            # old node.driver == "LvmDriver":
-            sp_node['driver_kind'] = node.provider_kind
+                if diskless:
+                    sp_diskless_list.append(sp_node)
+                else:
+                    sp_list.append(sp_node)
+                node_count += 1
 
-            # print(node)
+                print(sp_node)
 
-            if node.vlms:
-                print(node.vlms[0].device_path)
-            else:
-                print('No volumes')
-
-            sp_list.append(sp_node)
+        # Add the diskless nodes to the end of the list
+        if sp_diskless_list:
+            sp_list.extend(sp_diskless_list)
 
         print('\nFound '+str(len(sp_list))+' storage pools.')
 
         lin.disconnect()
+        pprint.pprint(sp_list)
         return sp_list
 
     except Exception as e:
@@ -157,7 +168,7 @@ def linstor_driver_init():
         spd_default = VOL_GROUP
 
         if not sp_list:
-            # print("No existing Storage Pools found")
+            print("No existing Storage Pools found")
 
             # Check for Ns
             node_list = get_nodes()
@@ -167,9 +178,9 @@ def linstor_driver_init():
                 print("Error: No resource nodes available")  # Exception needed here
 
             # Create Storage Pool (definition is implicit)
-            spd_name = get_spd()[0]['spd_name']
+            spd_name = get_spd()[0]
 
-            pool_driver = LVM   # LVM_THIN
+            pool_driver = LVM_THIN   # LVM_THIN
 
             if pool_driver == LVM:
                 driver_pool = VOL_GROUP
@@ -199,40 +210,43 @@ def linstor_driver_init():
 
 
 def linstor_deploy_resource(rsc_name=DEFAULT_RSC):
-
     try:
         lin = linstor.Linstor(DEFAULT_LINSTOR_URI)
         lin.connect()
         linstor_driver_init()
 
         # Check for RD
-        rd_list = lin.resource_dfn_list()
-        rsc_name_target = rsc_name
-
-        print("No existing Resource Definition found.  Created a new one.")
-        rd_reply = lin.resource_dfn_create(rsc_name_target)  # Need error checking
+        # rd_list = lin.resource_dfn_list()
+        # rsc_name_target = rsc_name
+        rd_reply = lin.resource_dfn_create(rsc_name)  # Need error checking
         print(check_api_response(rd_reply))
         rd_list = lin.resource_dfn_list()
-        print("Created RD: "+str(rd_list[0].proto_msg))
+        print("Created RD")
 
         # Create a New VD
         vd_reply = lin.volume_dfn_create(
-            rsc_name=rsc_name_target,
+            rsc_name=rsc_name,
             size=int(DEFAULT_RSC_SIZE))  # size is in KiB
         print(check_api_response(vd_reply))
-        print("Created VD: "+str(vd_reply[0].proto_msg))
-        # print(rd_list[0])
+        print("Created VD: "+str(vd_reply))
 
         # Create RSC's
         sp_list = get_sp()
-        # pprint.pprint(sp_list)
+        pprint.pprint(sp_list)
 
         for node in sp_list:
-            rsc = linstor.linstorapi.ResourceData(
-                rsc_name=rsc_name_target,
-                node_name=node['node_name'])
-            rsc_reply = lin.resource_create([rsc])
-            print(check_api_response(rsc_reply))
+            if node["driver_name"] == "DISKLESS":
+                is_diskless = True
+            else:
+                is_diskless = False
+
+            new_rsc = linstor.ResourceData(rsc_name=rsc_name,
+                                           node_name=node["node_name"],
+                                           storage_pool=node["sp_name"],
+                                           diskless=is_diskless)
+
+            rsc_reply = lin.resource_create([new_rsc], async_msg=False)
+            print("RSC Create: " + str(check_api_response(rsc_reply)))
 
         lin.disconnect()
         return

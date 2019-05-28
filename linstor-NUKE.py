@@ -16,21 +16,23 @@
 # 
 # PS.  It only removes volume 0 of any Resource Definitions.  Let me know if you need me to fix it.  -w-
 
-import time
 import linstor
+
+import jsons
 import pprint
-import time
-import re
-import json
 import sys
+import time
 
-LVM = 'Lvm'
-LVM_THIN = 'LvmThin'
-
+LVM = 'LVM'
+LVM_THIN = 'LVM_THIN'
+ZFS = 'ZFS'
+ZFS_THIN = 'ZFS_THIN'
+DISKLESS = 'DISKLESS'
 #
 # You probably DON'T want to change these, but I'm not stoppin'  
 #
 DEFAULT_LINSTOR_URI = 'linstor://localhost'
+DEFAULT_POOL = 'DfltStorPool'
 
 #
 # Please DO change this to reflect the Volume Group LINSTOR is going to sit on
@@ -42,33 +44,37 @@ def nuke():
     with linstor.Linstor(DEFAULT_LINSTOR_URI) as lin:
 
         # Nuke Resources
-        rsc_reply = lin.resource_list()[0].proto_msg
+        rsc_reply = jsons.dump(lin.resource_list()[0].resources)
 
-        if len(str(rsc_reply)):
-            #print(rsc_reply)
+        if rsc_reply:
+            print(rsc_reply)
 
-            for rsc in rsc_reply.resources:
-                print(rsc.name+' at '+rsc.node_name)
+            for rsc in rsc_reply:
+                print(rsc["_rest_data"]["name"]+' at '+rsc["_rest_data"]["node_name"])
 
-                lin.resource_delete(node_name = rsc.node_name,
-                                   rsc_name = rsc.name)
+                lin.resource_delete(
+                    node_name = rsc["_rest_data"]["node_name"],
+                    rsc_name = rsc["_rest_data"]["name"])
                 time.sleep(1)
 
-                rsc_dfn_list = lin.resource_dfn_list()[0].proto_msg
+                rsc_dfn_list = jsons.dump(
+                    lin.resource_dfn_list()[0].resource_definitions)
 
                 print(rsc_dfn_list)
-                for rsc_dfn in rsc_dfn_list.rsc_dfns:
-                    print(rsc_dfn.rsc_name)
+                for rsc_dfn in rsc_dfn_list:
+                    print(rsc_dfn["name"])
 
                     # Delete VD
-                    print('Deleting Volume Definition for '+rsc_dfn.rsc_name)
-                    api_reply = lin.volume_dfn_delete(rsc_dfn.rsc_name, 0)  # Need work here for volume number
+                    print('Deleting Volume Definition for '+rsc_dfn["name"])
+                    
+                    # TODO: Need work here for volume number
+                    api_reply = lin.volume_dfn_delete(rsc_dfn["name"], 0)
                     print(api_reply)
                     time.sleep(1)
 
                     # Delete RD
-                    print('Deleting Resource Definition for '+rsc_dfn.rsc_name)
-                    api_reply = lin.resource_dfn_delete(rsc_dfn.rsc_name)
+                    print('Deleting Resource Definition for '+rsc_dfn["name"])
+                    api_reply = lin.resource_dfn_delete(rsc_dfn["name"])
                     print(api_reply)
         else:
             print('NO RSCs to delete')
